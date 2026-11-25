@@ -22,6 +22,10 @@ df["dev_commitment"] = (
     df["commit_cadence"]*df["active_commit_days"]*df["num_commits"]*df["median_lines_per_commit"]
 ).clip(lower=0)
 
+#df["commits_a_day"] = (
+ #   df["num_commits"]/df["active_commit_days"]
+#)
+
 df["non_first_commit_code"] = (
     df["lines_of_code"]*(1-df["pct_code_in_first_commit"])
 )
@@ -36,21 +40,17 @@ x = df.drop(columns=["project_id",
 "primary_language",
 "pct_primary_language",
 "num_dependencies",
-"framework",
 "uses_game_engine",
 "has_tests",
 "num_test_files",
 "has_ci_config",
 "has_dockerfile",
-"has_backend",
 "has_database",
 "comment_line_ratio",
 "num_image_files",
 "num_audio_files",
 "num_3d_model_files",
 "num_font_files",
-"asset_size_mb",
-"has_custom_art",
 "readme_has_install_instructions",
 "has_license",
 "has_docs_folder",
@@ -61,16 +61,23 @@ x = df.drop(columns=["project_id",
 "is_mobile_responsive",
 "has_custom_domain",
 "load_time_ms",
-"project_category",
 "is_multiplayer",
 "mentions_ai_api",
 "is_clone_or_tutorial",
 "is_forked_from_template",
 "author_prior_projects",
-"author_account_age_years"
+"author_account_age_years",
+"log_hours",
+"hours_bucket",
+"hours_spent"
 ])
 
-x=np.log1p(x.fillna(0))
+for col in x.select_dtypes(include=["bool","boolean"]).columns:
+    x[col] = x[col].astype(float)
+for col in x.select_dtypes(include=["string","object","category"]).columns:
+    x[col] = x[col].astype("string").astype("category")
+
+
 
 y = df["log_hours"]
 
@@ -85,7 +92,9 @@ for weight in [4,4.5,5,5.5,6]:
         learning_rate=0.06,
         early_stopping_rounds=80,
         eval_metric="rmse",
-        random_state=30
+        enable_categorical=True,
+        tree_method="hist",
+        random_state=1
     )
 
     model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=50)
