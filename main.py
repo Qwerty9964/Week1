@@ -6,7 +6,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import root_mean_squared_error
 from xgboost import XGBRegressor
 
-
 df = pd.read_csv("data/train.csv")
 
 df["commit_cadence"]=df["commit_cadence"].map({
@@ -36,6 +35,13 @@ df["non_first_commit_code"] = (
     df["lines_of_code"]*(1-df["pct_code_in_first_commit"])
 )
 
+df["incremental_intesity"] = (
+    df["incremental_lines_added"]*df["active_commit_days"]
+)
+
+df["commit_imbalance"] = (
+    df["max_lines_in_one_commit"] / df["median_lines_per_commit"]
+)
 
 x = df.drop(columns=["project_id",
 "pct_commits_weekend",
@@ -54,7 +60,6 @@ x = df.drop(columns=["project_id",
 "comment_line_ratio",
 "num_image_files",
 "num_audio_files",
-"num_3d_model_files",
 "num_font_files",
 "readme_has_install_instructions",
 "has_license",
