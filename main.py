@@ -15,6 +15,7 @@ df["commit_cadence"]=df["commit_cadence"].map({
     "frequent": 3
 }).fillna(0)
 
+#engineered features
 df["incremental_lines_added"] = (
     df["lines_added_total"] - df["max_lines_in_one_commit"].fillna(0)
 ).clip(lower=0)
@@ -23,9 +24,13 @@ df["dev_commitment"] = (
     df["commit_cadence"]*df["active_commit_days"]*df["num_commits"]*df["median_lines_per_commit"]
 ).clip(lower=0)
 
-#df["commits_a_day"] = (
- #   df["num_commits"]/df["active_commit_days"]
-#)
+df["non_active_days"] = (
+    df["project_span_days"] - df["active_commit_days"]
+)
+
+df["commits_a_day"] = (
+    df["num_commits"]/df["active_commit_days"]
+)
 
 df["non_first_commit_code"] = (
     df["lines_of_code"]*(1-df["pct_code_in_first_commit"])
@@ -38,7 +43,6 @@ x = df.drop(columns=["project_id",
 "num_commit_authors",
 "num_branches",
 "num_merge_commits",
-"primary_language",
 "pct_primary_language",
 "num_dependencies",
 "uses_game_engine",
@@ -92,11 +96,12 @@ def objective(trial):
         n_estimators=2000,
         max_depth=trial.suggest_int("max_depth",1,9),
         learning_rate=trial.suggest_float("learning_rate",0.01,0.11),
-        subsample=trial.suggest_float("subsample",0.5,1),
+        subsample=trial.suggest_float("subsample",0.3,1),
         colsample_bytree=trial.suggest_float("colsample_bytree",0.5,1),
         reg_lambda=trial.suggest_float("reg_lambda",0.001,100, log=True),
         reg_alpha=trial.suggest_float("reg_alpha",0.001,100, log=True),
         gamma=trial.suggest_float("gamma",0,5),
+        min_child_weight=trial.suggest_int("min_child_weight",1,20),
         early_stopping_rounds=80,
         eval_metric="rmse",
         enable_categorical=True,
