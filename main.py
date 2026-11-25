@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
 import optuna
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import root_mean_squared_error
 from xgboost import XGBRegressor
+
 
 df = pd.read_csv("data/train.csv")
 
@@ -28,7 +29,7 @@ df["non_active_days"] = (
 )
 
 df["commits_a_day"] = (
-    df["num_commits"]/df["active_commit_days"]
+    df["num_commits"]/df["active_commit_days"].clip(lower=1)
 )
 
 df["non_first_commit_code"] = (
@@ -40,7 +41,7 @@ df["incremental_intesity"] = (
 )
 
 df["commit_imbalance"] = (
-    df["max_lines_in_one_commit"] / df["median_lines_per_commit"]
+  df["max_lines_in_one_commit"] / df["median_lines_per_commit"].clip(lower=1)
 )
 
 x = df.drop(columns=["project_id",
@@ -82,48 +83,65 @@ x = df.drop(columns=["project_id",
 "hours_spent"
 ])
 
+#preproccess anything thats not a number into a number or category to be handled by xgboost
 for col in x.select_dtypes(include=["bool","boolean"]).columns:
     x[col] = x[col].astype(float)
 for col in x.select_dtypes(include=["string","object","category"]).columns:
     x[col] = x[col].astype("string").astype("category")
 
-
-
 y = df["log_hours"]
 
+cv = KFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=30
+)
 
 x_train,x_val,y_train,y_val = train_test_split(x,y,test_size=0.2,random_state=30)
 
 def objective(trial):
 
+    study_scores=[]
 
-    model = XGBRegressor(
-        n_estimators=2000,
-        max_depth=trial.suggest_int("max_depth",1,9),
-        learning_rate=trial.suggest_float("learning_rate",0.01,0.11),
-        subsample=trial.suggest_float("subsample",0.3,1),
-        colsample_bytree=trial.suggest_float("colsample_bytree",0.5,1),
-        reg_lambda=trial.suggest_float("reg_lambda",0.001,100, log=True),
-        reg_alpha=trial.suggest_float("reg_alpha",0.001,100, log=True),
-        gamma=trial.suggest_float("gamma",0,5),
-        min_child_weight=trial.suggest_int("min_child_weight",1,20),
-        early_stopping_rounds=80,
-        eval_metric="rmse",
-        enable_categorical=True,
-        tree_method="hist",
-        random_state=1
-    )
+    params={
+        "max_depth" : trial.suggest_int("max_depth",1,9),
+        "learning_rate" : trial.suggest_float("learning_rate",0.01,0.11),
+        "subsample" : trial.suggest_float("subsample",0.3,1),
+        "colsample_bytree" : trial.suggest_float("colsample_bytree",0.5,1),
+        "reg_lambda" : trial.suggest_float("reg_lambda",0.001,100, log=True),
+        "reg_alpha" : trial.suggest_float("reg_alpha",0.001,100, log=True),
+        "gamma" : trial.suggest_float("gamma",0,5),
+    }
 
-    model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
+    for train_col_ids, val_col_ids in cv.split(x):
 
-    return model.best_score
+        x_train = x.iloc[train_col_ids]
+        x_val = x.iloc[val_col_ids]
+        y_train= y.iloc[train_col_ids]
+        y_val = y.iloc[val_col_ids]
+
+        model = XGBRegressor(
+            **params,
+            n_estimators=2000,
+            early_stopping_rounds=80,
+            eval_metric="rmse",
+            enable_categorical=True,
+            tree_method="hist",
+            random_state=1
+        )
+
+        model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
+
+        study_scores.append(model.best_score)
+
+    return np.mean(study_scores)
+
 
 study = optuna.create_study(
     direction="minimize",
     sampler=optuna.samplers.TPESampler(seed=30))
 
-study.optimize(objective, n_trials=80, show_progress_bar=True)
+study.optimize(objective, n_trials=60, show_progress_bar=True)
 
-
-print(f"Best score: {study.best_value}")
-print(f"Best params: {study.best_params}")
+print(study.best_value)
+print(study.best_params)
