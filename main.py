@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import optuna
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import root_mean_squared_error
@@ -84,12 +85,18 @@ y = df["log_hours"]
 
 x_train,x_val,y_train,y_val = train_test_split(x,y,test_size=0.2,random_state=30)
 
-for weight in [4,4.5,5,5.5,6]:
+def objective(trial):
+
 
     model = XGBRegressor(
         n_estimators=2000,
-        max_depth=4,
-        learning_rate=0.06,
+        max_depth=trial.suggest_int("max_depth",1,9),
+        learning_rate=trial.suggest_float("learning_rate",0.01,0.11),
+        subsample=trial.suggest_float("subsample",0.5,1),
+        colsample_bytree=trial.suggest_float("colsample_bytree",0.5,1),
+        reg_lambda=trial.suggest_float("reg_lambda",0.001,100, log=True),
+        reg_alpha=trial.suggest_float("reg_alpha",0.001,100, log=True),
+        gamma=trial.suggest_float("gamma",0,5),
         early_stopping_rounds=80,
         eval_metric="rmse",
         enable_categorical=True,
@@ -97,8 +104,16 @@ for weight in [4,4.5,5,5.5,6]:
         random_state=1
     )
 
-    model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=50)
+    model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
 
-    print(f"With weight {weight} at iteration {model.best_iteration} the score was {model.best_score}")
+    return model.best_score
+
+study = optuna.create_study(
+    direction="minimize",
+    sampler=optuna.samplers.TPESampler(seed=30))
+
+study.optimize(objective, n_trials=80, show_progress_bar=True)
 
 
+print(f"Best score: {study.best_value}")
+print(f"Best params: {study.best_params}")
