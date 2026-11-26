@@ -1,21 +1,22 @@
 import pandas as pd
 import numpy as np
 import optuna
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import root_mean_squared_error
 from xgboost import XGBRegressor
 
-best_params={
-    "max_depth":7,
-    "learning_rate":0.016307,
-    "subsample": 0.41699,
-    "colsample_bytree":0.654987,
-    "reg_lambda": 0.01516,
-    "reg_alpha": 0.1635507,
-    "gamma": 0.8350481,
-    "min_child_weight":2
-}
+scores=[]
+
+best_params={'max_depth': 9,
+            'learning_rate': 0.01496992977418088,
+            'subsample': 0.4551244532473209,
+            'colsample_bytree': 0.9000338599376193,
+            'reg_lambda': 8.86045464059279,
+            'reg_alpha': 0.0009822935926439825,
+            'gamma': 2.2726785097950764}
+    
+
 
 df = pd.read_csv("data/train.csv")
 
@@ -39,15 +40,19 @@ df["non_active_days"] = (
 )
 
 df["commits_a_day"] = (
-    df["num_commits"]/df["active_commit_days"]
+    df["num_commits"]/df["active_commit_days"].clip(lower=1)
 )
 
 df["non_first_commit_code"] = (
     df["lines_of_code"]*(1-df["pct_code_in_first_commit"])
 )
 
-df["incremental_intensity"] = (
+df["incremental_intesity"] = (
     df["incremental_lines_added"]*df["active_commit_days"]
+)
+
+df["commit_imbalance"] = (
+  df["max_lines_in_one_commit"] / df["median_lines_per_commit"].clip(lower=1)
 )
 
 x = df.drop(columns=["project_id",
@@ -86,40 +91,87 @@ x = df.drop(columns=["project_id",
 "author_account_age_years",
 "log_hours",
 "hours_bucket",
-"hours_spent"
+"hours_spent",
+
 ])
 
+#preproccess anything thats not a number into a number or category to be handled by xgboost
 for col in x.select_dtypes(include=["bool","boolean"]).columns:
     x[col] = x[col].astype(float)
 for col in x.select_dtypes(include=["string","object","category"]).columns:
     x[col] = x[col].astype("string").astype("category")
 
-
-
 y = df["log_hours"]
 
-
-x_train,x_val,y_train,y_val = train_test_split(x,y,test_size=0.2,random_state=30)
-
-
-model = XGBRegressor(
-    **best_params,
-    n_estimators=2000,
-    early_stopping_rounds=80,
-    eval_metric="rmse",
-    enable_categorical=True,
-    tree_method="hist",
-    random_state=1
-)
-    
-model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
-    
-    
-print(f"Best score: {model.best_score}")
-
-importances= pd.Series(
-    model.feature_importances_,
-    index=x.columns
+cv = KFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=30
 )
 
-print(importances.sort_values(ascending=False))
+oof_preds = np.zeros(len(x))
+
+for train_col_ids, val_col_ids in cv.split(x):
+
+    x_train = x.iloc[train_col_ids]
+    x_val = x.iloc[val_col_ids]
+    y_train= y.iloc[train_col_ids]
+    y_val = y.iloc[val_col_ids]
+
+    model = XGBRegressor(
+        **best_params,
+        n_estimators=2000,
+        early_stopping_rounds=80,
+        eval_metric="rmse",
+        enable_categorical=True,
+        tree_method="hist",
+        random_state=1
+    )
+
+    model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
+
+    oof_preds[val_col_ids]=model.predict(x_val)
+
+    scores.append(model.best_score)
+
+    importances= pd.Series(
+        model.feature_importances_,
+        index=x.columns
+    )
+
+    print(importances.sort_values(ascending=False))
+
+print(np.mean(scores))
+
+analysis = df.copy()
+analysis["predictions"] = oof_preds
+analysis["error"] = analysis["log_hours"] - analysis["predictions"]
+analysis["absolute_error"] = np.abs(analysis["error"])
+analysis["squared_error"] = analysis["error"] * analysis["error"]
+
+print(analysis.groupby("project_category")["absolute_error"].mean().sort_values(ascending=False))
+print(analysis.groupby("hours_bucket")["absolute_error"].mean().sort_values(ascending=False))
+
+analysis["predicted_hours"] = np.expm1(
+    analysis["predictions"]
+)
+
+analysis["predicted_bucket"] = pd.cut(
+    analysis["predicted_hours"],
+    bins=[-np.inf, 10, 30, 100, np.inf],
+    labels=["<10", "10-30", "30-100", "100+"]
+)
+
+print(
+    analysis.groupby("predicted_bucket", observed=True)
+    .agg(
+        count=("error", "size"),
+        bias=("error", "mean"),
+        mse=("squared_error", "mean")
+    )
+)
+
+print(scores)
+print(np.mean(scores))
+
+

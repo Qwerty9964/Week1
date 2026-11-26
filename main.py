@@ -108,8 +108,8 @@ def objective(trial):
         "learning_rate" : trial.suggest_float("learning_rate",0.01,0.11),
         "subsample" : trial.suggest_float("subsample",0.3,1),
         "colsample_bytree" : trial.suggest_float("colsample_bytree",0.5,1),
-        "reg_lambda" : trial.suggest_float("reg_lambda",0.001,100, log=True),
-        "reg_alpha" : trial.suggest_float("reg_alpha",0.001,100, log=True),
+        "reg_lambda" : trial.suggest_float("reg_lambda",0.0001,10, log=True),
+        "reg_alpha" : trial.suggest_float("reg_alpha",0.0001,100, log=True),
         "gamma" : trial.suggest_float("gamma",0,5),
     }
 
@@ -134,6 +134,13 @@ def objective(trial):
 
         study_scores.append(model.best_score)
 
+    importances= pd.Series(
+        model.feature_importances_,
+        index=x.columns
+    )
+
+    print(importances.sort_values(ascending=False))
+
     return np.mean(study_scores)
 
 
@@ -143,5 +150,6 @@ study = optuna.create_study(
 
 study.optimize(objective, n_trials=60, show_progress_bar=True)
 
-print(study.best_value)
+print(f"best score: {study.best_value}")
 print(study.best_params)
+
