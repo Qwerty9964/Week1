@@ -109,7 +109,7 @@ cv = KFold(
     random_state=30
 )
 
-oof_preds = np.zeros(len(x))
+xgb_oof_preds = np.zeros(len(x))
 
 for train_col_ids, val_col_ids in cv.split(x):
 
@@ -130,7 +130,9 @@ for train_col_ids, val_col_ids in cv.split(x):
 
     model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
 
-    oof_preds[val_col_ids]=model.predict(x_val)
+    xgb_oof_preds[val_col_ids]=model.predict(x_val)
+
+
 
     scores.append(model.best_score)
 
@@ -143,8 +145,10 @@ for train_col_ids, val_col_ids in cv.split(x):
 
 print(np.mean(scores))
 
+np.save("xgb_oof.npy", xgb_oof_preds)
+
 analysis = df.copy()
-analysis["predictions"] = oof_preds
+analysis["predictions"] = xgb_oof_preds
 analysis["error"] = analysis["log_hours"] - analysis["predictions"]
 analysis["absolute_error"] = np.abs(analysis["error"])
 analysis["squared_error"] = analysis["error"] * analysis["error"]

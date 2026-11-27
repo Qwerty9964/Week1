@@ -104,6 +104,7 @@ cv = KFold(
 
 scores=[]
 
+ridge_oof_preds=np.zeros(len(x))
 
 for train_row_ids, val_row_ids in cv.split(x):
 
@@ -122,6 +123,8 @@ for train_row_ids, val_row_ids in cv.split(x):
     model.fit(x_train,y_train)
 
     predictions = model.predict(x_val)
+    ridge_oof_preds[val_row_ids]=predictions
+
     error = root_mean_squared_error(y_val,predictions)
 
     print(f"training error: {root_mean_squared_error(y_train, model.predict(x_train))}")
@@ -133,6 +136,8 @@ for train_row_ids, val_row_ids in cv.split(x):
 
     
     scores.append(error)
+
+np.save("ridge_oof.npy", ridge_oof_preds)
 
 print(scores)
 print(f"error: {np.mean(scores)}")
