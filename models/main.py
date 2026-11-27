@@ -6,17 +6,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import root_mean_squared_error
 from xgboost import XGBRegressor
 
-scores=[]
-
-best_params={'max_depth': 9,
-            'learning_rate': 0.01496992977418088,
-            'subsample': 0.4551244532473209,
-            'colsample_bytree': 0.9000338599376193,
-            'reg_lambda': 8.86045464059279,
-            'reg_alpha': 0.0009822935926439825,
-            'gamma': 2.2726785097950764}
-    
-
 
 df = pd.read_csv("data/train.csv")
 
@@ -91,8 +80,7 @@ x = df.drop(columns=["project_id",
 "author_account_age_years",
 "log_hours",
 "hours_bucket",
-"hours_spent",
-
+"hours_spent"
 ])
 
 #preproccess anything thats not a number into a number or category to be handled by xgboost
@@ -109,32 +97,41 @@ cv = KFold(
     random_state=30
 )
 
-xgb_oof_preds = np.zeros(len(x))
 
-for train_col_ids, val_col_ids in cv.split(x):
+def objective(trial):
 
-    x_train = x.iloc[train_col_ids]
-    x_val = x.iloc[val_col_ids]
-    y_train= y.iloc[train_col_ids]
-    y_val = y.iloc[val_col_ids]
+    study_scores=[]
 
-    model = XGBRegressor(
-        **best_params,
-        n_estimators=2000,
-        early_stopping_rounds=80,
-        eval_metric="rmse",
-        enable_categorical=True,
-        tree_method="hist",
-        random_state=1
-    )
+    params={
+        "max_depth" : trial.suggest_int("max_depth",1,9),
+        "learning_rate" : trial.suggest_float("learning_rate",0.01,0.11),
+        "subsample" : trial.suggest_float("subsample",0.3,1),
+        "colsample_bytree" : trial.suggest_float("colsample_bytree",0.5,1),
+        "reg_lambda" : trial.suggest_float("reg_lambda",0.0001,10, log=True),
+        "reg_alpha" : trial.suggest_float("reg_alpha",0.0001,100, log=True),
+        "gamma" : trial.suggest_float("gamma",0,5),
+    }
 
-    model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
+    for train_col_ids, val_col_ids in cv.split(x):
 
-    xgb_oof_preds[val_col_ids]=model.predict(x_val)
+        x_train = x.iloc[train_col_ids]
+        x_val = x.iloc[val_col_ids]
+        y_train= y.iloc[train_col_ids]
+        y_val = y.iloc[val_col_ids]
 
+        model = XGBRegressor(
+            **params,
+            n_estimators=2000,
+            early_stopping_rounds=80,
+            eval_metric="rmse",
+            enable_categorical=True,
+            tree_method="hist",
+            random_state=1
+        )
 
+        model.fit(x_train,y_train,eval_set=[(x_val,y_val)],verbose=False)
 
-    scores.append(model.best_score)
+        study_scores.append(model.best_score)
 
     importances= pd.Series(
         model.feature_importances_,
@@ -143,39 +140,15 @@ for train_col_ids, val_col_ids in cv.split(x):
 
     print(importances.sort_values(ascending=False))
 
-print(np.mean(scores))
+    return np.mean(study_scores)
 
-np.save("xgb_oof.npy", xgb_oof_preds)
 
-analysis = df.copy()
-analysis["predictions"] = xgb_oof_preds
-analysis["error"] = analysis["log_hours"] - analysis["predictions"]
-analysis["absolute_error"] = np.abs(analysis["error"])
-analysis["squared_error"] = analysis["error"] * analysis["error"]
+study = optuna.create_study(
+    direction="minimize",
+    sampler=optuna.samplers.TPESampler(seed=30))
 
-print(analysis.groupby("project_category")["absolute_error"].mean().sort_values(ascending=False))
-print(analysis.groupby("hours_bucket")["absolute_error"].mean().sort_values(ascending=False))
+study.optimize(objective, n_trials=60, show_progress_bar=True)
 
-analysis["predicted_hours"] = np.expm1(
-    analysis["predictions"]
-)
-
-analysis["predicted_bucket"] = pd.cut(
-    analysis["predicted_hours"],
-    bins=[-np.inf, 10, 30, 100, np.inf],
-    labels=["<10", "10-30", "30-100", "100+"]
-)
-
-print(
-    analysis.groupby("predicted_bucket", observed=True)
-    .agg(
-        count=("error", "size"),
-        bias=("error", "mean"),
-        mse=("squared_error", "mean")
-    )
-)
-
-print(scores)
-print(np.mean(scores))
-
+print(f"best score: {study.best_value}")
+print(study.best_params)
 

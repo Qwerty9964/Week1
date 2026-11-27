@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.metrics import root_mean_squared_error
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
@@ -96,17 +96,19 @@ y = df["log_hours"]
 
 
 
-cv = KFold(
+cv = StratifiedKFold(
     n_splits=5,
     shuffle=True,
     random_state=30
 )
 
+buckets = df["hours_bucket"]
+
 scores=[]
 
 ridge_oof_preds=np.zeros(len(x))
 
-for train_row_ids, val_row_ids in cv.split(x):
+for train_row_ids, val_row_ids in cv.split(x,buckets):
 
     x_train = x.iloc[train_row_ids]
     x_val = x.iloc[val_row_ids]
